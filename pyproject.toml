@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memobrain"
+version = "0.1.0"
+description = "A reasoning graph-based memory system for LLM agents"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "MemoBrain Team"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/qhjqhj00/MemoBrain"
+Documentation = "https://github.com/qhjqhj00/MemoBrain#readme"
+Repository = "https://github.com/qhjqhj00/MemoBrain"
+
+[tool.setuptools]
+packages = ["memobrain"]
+package-dir = {"memobrain" = "src"}
+

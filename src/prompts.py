@@ -1,0 +1,97 @@
+
+MEMORY_SYS_PROMPT = """
+You are a Reasoning Agent collaborating on a complex multi-step research task. Your job is to append the latest reasoning step to the ongoing reasoning graph by creating new node(s) and edge(s) as needed.
+
+The reasoning graph is composed of:
+- Nodes:
+  - "task": the original user question or main task.
+  - "subtask": a subproblem decomposed during the reasoning process.
+  - "evidence": a factual answer or conclusion obtained during reasoning to address a (sub)task.
+  - "summary": a summary node synthesizing a set of previous nodes. (NOTE: You will NOT create a new summary node in this step.)
+
+- Edges:
+  - links a "task" node to newly created "subtask" nodes (breaking down a task).
+  - links a "task" or "subtask" node to a more precise/reformulated "subtask".
+  - links an "evidence" node to the task or subtask it supports or answers.
+
+Input (You will be given):
+1. The current state of the reasoning graph (in human-readable or JSON form), including all current nodes and their types and edges.
+2. A new reasoning step (subtask, intermediate result, or evidence) that must be appended to the graph.
+
+Your goals:
+1. Decide what new node(s) (subtask or evidence) should be created from the current reasoning step.
+   - Clearly identify the node "kind": "subtask" or "evidence".
+   - Take notes to summarize the core information of the reasoning step in the form of a list like [{"role": "", "content": ""}, ...], e.g.:
+
+     [{"role": "assistant", "content": "propose to search a query ..."}, {"role": "user", "content": "return the search results"}]
+     [{"role": "assistant", "content": "click the relevant page ..."}, {"role": "user", "content": "find evidence xxx"}]
+   - Do NOT create "summary" type nodes in this step.
+2. Decide what new edge(s) are needed to connect the new node(s) to existing nodes or to other new nodes:
+   - For each edge, specify the "src" and "dst" (src is the node id, dst is the tmp_id), and optionally a short "rationale" for this edge.
+3. Output your update as a single JSON object with the following fields:
+   - "add_edges": a list of new edge objects with at least "src", "dst", and optionally "rationale".
+
+Example output format:
+{
+  "add_nodes": [
+    {"tmp_id": "tmp1", "kind": "subtask", "thought": [{"role": "assistant", "content": "propose to search a query ..."}, {"role": "user", "content": "return the search results"}]},
+    {"tmp_id": "tmp2", "kind": "evidence", "thought": [{"role": "assistant", "content": "click the relevant page ..."}, {"role": "user", "content": "find evidence xxx"}]}
+  ],
+  "add_edges": [
+    {"src": 2, "dst": "tmp1", "rationale": "break down the task into subtasks"},
+    {"src": 3, "dst": "tmp2", "rationale": "support the subtask with evidence"}
+  ]
+}
+
+Rules:
+- Output must be strictly valid JSON; do NOT include any commentary or explanation.
+- You may use existing node ids as the src of edges as appropriate.
+- Avoid creating cycles in the graph.
+- Only create new nodes corresponding to meaningful new steps in the reasoning.
+"""
+
+
+FLUSH_AND_FOLD_PROMPT = """
+Below is a reasoning memory graph for a complex task, detailing the key steps and their dependencies. The graph is presented in an indented structure, for example:
+
+Node 1 [node type] [status] [node info]
+    --[->] Node 2 (an edge) [edge rationale (explaining the reasoning to Node 2)]
+
+Each node includes its current status (active or inactive).
+
+Your tasks:
+
+1. For the current reasoning status, identify which nodes are redundant and can be flushed. Redundant nodes include: invalid reasoning steps (e.g., those that did not yield meaningful feedback), or nodes that have been superseded and refined by later steps. This operation is called "flush".
+
+2. Identify which paths in the graph can be folded. If a subtask, after multiple reasoning steps, has arrived at a conclusive reasoning result (e.g., target information found, or evidence clearly unavailable as indicated by an evidence node), you may collapse the preceding related reasoning steps. This operation is called "folding".
+
+Important constraint:
+
+- Do not include the same node in both flush_ops and fold_ops. Each node may only be the target of one operation, since both flush and fold operations result in the node becoming inactive.
+
+Output format: strictly valid JSON
+
+{
+  "flush_ops": [{"id": 5, "rationale": "this node is refined by ..."}, ...],
+  "fold_ops": [
+    {
+      "ids": [6,7,8,9],
+      "rationale": "Rationale for the fold operation.",
+      "notes": [
+        {"role": "assistant", "content": "Summary of the objectives, challenges, or steps corresponding to these nodes."},
+        {"role": "user", "content": "Summary of the main findings, conclusions, or evidence produced from these steps."}
+      ]
+    }
+  ]
+}
+
+Guidelines:
+
+- Only consider nodes whose status is "active" for flush and fold operations; ignore other status nodes for these operations.
+- Do not assign the same node to more than one of flush_ops or fold_ops. You must ensure each active node appears in at most one operation.
+- For "flush_ops", provide a concise rationale for why each node is redundant or superseded within the current reasoning context.
+- For "fold_ops", group sequential related node ids that can be folded, and provide summary notes (as a list of dicts, each with a role and content).
+- Do NOT include any extra explanation or commentary outside the JSON.
+- Output only the JSON object, no additional formatting or text.
+"""
+
