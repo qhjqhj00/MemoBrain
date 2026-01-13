@@ -70,13 +70,17 @@ MemoBrain can work with **any LLM** as the foundation model via OpenAI-compatibl
    - 🤗 [MemoBrain-8B](https://huggingface.co/TommyChien/MemoBrain-8B) (Qwen3-8B-based)
    - 🤗 [MemoBrain-14B](https://huggingface.co/TommyChien/MemoBrain-14B) (Qwen3-14B-based)
 
-#### Deploy MemoBrain Models with vLLM
+#### Deploy MemoBrain Model with vLLM
 
 ```bash
 # Install vLLM
-# Deploy MemoBrain-8B
-vllm serve TommyChien/MemoBrain-8B --port 8000
+pip install vllm
 
+# Deploy MemoBrain-14B (recommended)
+vllm serve TommyChien/MemoBrain-14B --port 8002
+
+# Or deploy MemoBrain-8B for lower resource usage
+vllm serve TommyChien/MemoBrain-8B --port 8002
 ```
 
 #### Python Usage
@@ -90,15 +94,15 @@ async def main():
     # Option A: Use our fine-tuned model (recommended)
     memory = MemoBrain(
         api_key="EMPTY",  # vLLM doesn't require API key
-        base_url="http://localhost:8000/v1",
-        model_name="TommyChien/MemoBrain-8B"
+        base_url="http://localhost:8002/v1",
+        model_name="TommyChien/MemoBrain-14B"
     )
     
     # Option B: Use commercial models
     # memory = MemoBrain(
     #     api_key="your-api-key",
-    #     base_url="https://openrouter.ai/api/v1",
-    #     model_name="openai/gpt-5"
+    #     base_url="https://api.deepseek.com/v1",
+    #     model_name="deepseek-chat"
     # )
     
     # Step 2: Initialize memory with your task
@@ -106,13 +110,13 @@ async def main():
     
     # Step 3: Memorize conversation interactions
     await memory.memorize([
-        {"role": "user", "content": "What is the capital of France?"},
-        {"role": "assistant", "content": "The capital of France is Paris."}
+        {"role": "assistant", "content": "I need to search for information about Paris..."},
+        {"role": "user", "content": "Search results: Paris is the capital of France..."}
     ])
     
     await memory.memorize([
-        {"role": "user", "content": "What is its population?"},
-        {"role": "assistant", "content": "Paris has approximately 2.2 million inhabitants."}
+        {"role": "assistant", "content": "Let me get the population data..."},
+        {"role": "user", "content": "Paris has approximately 2.2 million inhabitants."}
     ])
     
     # Step 4: Optimize memory (flush invalid steps & fold completed sub-trajectories)
@@ -167,112 +171,191 @@ This episodic granularity helps MemoBrain better understand the logical structur
 
 ## 💡 Examples
 
-### Example 1: Simple Usage
-
-See [`examples/example_usage.py`](examples/example_usage.py) for a basic example of loading and visualizing memory:
+### Example 1: Basic Usage
 
 ```python
 import json
 from memobrain import MemoBrain
 
-# Load test data
-data = [json.loads(line) for line in open("examples/test_tree.jsonl")]
-
 # Initialize MemoBrain
-memobrain = MemoBrain(
-    api_key="your-api-key",
-    base_url="https://api.deepseek.com",
-    model_name="deepseek-chat",
+memory = MemoBrain(
+    api_key="EMPTY",
+    base_url="http://localhost:8002/v1",
+    model_name="TommyChien/MemoBrain-14B"
 )
 
-# Load memory from dictionary
-memobrain.load_dict_memory(data[0]["memory"])
+# Load existing memory graph
+data = json.load(open("memory_snapshot.json"))
+memory.load_dict_memory(data["memory"])
 
-# Visualize memory graph
-print(memobrain.graph.pretty_print())
+# Visualize memory structure
+print(memory.graph.pretty_print())
 ```
 
-### Example 2: Multi-Round Conversation
+See [`examples/example_usage.py`](examples/example_usage.py) for more details.
+
+### Example 2: Token Budget-Based Memory Management
+
+MemoBrain supports **token budget-based memory management**, which automatically triggers optimization when context exceeds a specified budget:
 
 ```python
 import asyncio
 from memobrain import MemoBrain
+from utils import num_tokens_from_messages
 
-async def research_task():
-    # Initialize MemoBrain
+async def token_budget_example(conversations):
     memory = MemoBrain(
-        api_key="your-api-key",
-        base_url="https://api.openai.com/v1",
-        model_name="gpt-4"
-    )
-    memory.init_memory("Research AI development history")
-    
-    # Multiple conversation rounds
-    conversations = [
-        [
-            {"role": "user", "content": "When did AI begin?"},
-            {"role": "assistant", "content": "AI research started in the 1950s..."}
-        ],
-        [
-            {"role": "user", "content": "What is the Turing test?"},
-            {"role": "assistant", "content": "The Turing test is a test of a machine's ability..."}
-        ],
-        [
-            {"role": "user", "content": "When did deep learning emerge?"},
-            {"role": "assistant", "content": "Deep learning gained prominence in the 2010s..."}
-        ]
-    ]
-    
-    for conv in conversations:
-        await memory.memorize(conv)
-        print(f"Memorized {len(conv)} messages")
-    
-    # Optimize after accumulating conversations
-    optimized = await memory.recall()
-    print(f"Optimized to {len(optimized)} messages")
-    
-    return optimized
-
-asyncio.run(research_task())
-```
-
-### Example 3: Periodic Memory Optimization
-
-```python
-import asyncio
-from memobrain import MemoBrain
-
-async def managed_memory_loop(conversations):
-    memory = MemoBrain(
-        api_key="your-api-key",
-        base_url="https://api.openai.com/v1",
-        model_name="gpt-4"
+        api_key="EMPTY",
+        base_url="http://localhost:8002/v1",
+        model_name="TommyChien/MemoBrain-14B"
     )
     memory.init_memory("Long-running research task")
     
-    message_count = 0
+    # Set token budget (e.g., 32K tokens)
+    max_memory_size = 32 * 1024
+    current_messages = []
+    
     for conv in conversations:
         await memory.memorize(conv)
-        message_count += len(conv)
+        current_messages.extend(conv)
         
-        # Optimize every 20 messages
-        if message_count >= 20:
+        # Check token count
+        token_count = num_tokens_from_messages(current_messages)
+        
+        # Trigger recall when exceeding budget
+        if token_count > max_memory_size:
             optimized = await memory.recall()
-            print(f"Optimized: {message_count} → {len(optimized)} messages")
-            message_count = 0
+            current_messages = optimized
+            print(f"Memory optimized: {token_count} → {num_tokens_from_messages(optimized)} tokens")
 
-# asyncio.run(managed_memory_loop(your_conversations))
+asyncio.run(token_budget_example(your_conversations))
 ```
+
+**Key Benefits:**
+- Automatic context management without manual tracking
+- Flexible budget based on model's context window
+- Efficient memory usage with on-demand optimization
+- Seamless integration with long reasoning trajectories
+
+---
+
+## 🛠️ ReAct Agent with MemoBrain
+
+We provide a complete example of integrating MemoBrain with a **ReAct agent** for long-horizon reasoning tasks. The example demonstrates how MemoBrain manages memory during complex multi-step reasoning with tool execution.
+
+### Features
+
+- **Tool-Augmented Reasoning**: Web search, page visiting, and code execution
+- **Automatic Memory Management**: MemoBrain handles context optimization transparently
+- **Token Budget Control**: Configurable memory size limits (default: 32K tokens)
+- **Flexible Deployment**: Works with or without MemoBrain for easy comparison
+
+### Quick Example
+
+```bash
+cd examples
+
+# Deploy MemoBrain model
+vllm serve TommyChien/MemoBrain-14B --port 8002
+
+# Run evaluation with MemoBrain
+python run_task.py --eval_task gaia
+
+# Run without MemoBrain for comparison
+python run_task.py --eval_task gaia --no_memory
+```
+
+### Integration Example
+
+> **⚠️ Note:** This example requires the complete setup described in [examples/README.md](examples/README.md), including:
+> - Deploying 3 models (Reasoning, Auxiliary, Memory)
+> - Configuring API keys (Google Search, Jina)
+> - Installing dependencies
+
+**For a quick start, use the command-line interface instead:**
+
+```bash
+cd examples
+python run_task.py --eval_task gaia --help
+```
+
+**Programmatic usage (after setup):**
+
+```python
+import asyncio
+from memobrain import MemoBrain
+from react_with_memory import run_react_agent
+from config import Configuration
+
+async def main():
+    # Configure models and API keys
+    config = Configuration(
+        # Reasoning model
+        reasoning_model="Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
+        reasoning_model_base_url="http://localhost:8000/v1",
+        reasoning_model_api_key="empty",
+        
+        # Auxiliary model (for web page summarization)
+        auxiliary_model="Qwen/Qwen2.5-14B-Instruct",
+        auxiliary_model_base_url="http://localhost:8001/v1",
+        auxiliary_model_api_key="empty",
+        
+        # Memory model
+        memory_model="TommyChien/MemoBrain-14B",
+        memory_model_base_url="http://localhost:8002/v1",
+        memory_model_api_key="empty",
+        
+        # API keys for tools
+        google_api_key="YOUR_GOOGLE_API_KEY",
+        google_cx="YOUR_GOOGLE_CX",
+        jina_api_key="YOUR_JINA_API_KEY",
+        
+        # Memory configuration
+        max_memory_size=32*1024,  # 32K tokens
+        max_llm_call_per_run=200,
+        use_memory=True
+    )
+    
+    # Run ReAct agent with MemoBrain
+    result = await run_react_agent(
+        question="What is the population of Paris?",
+        config=config,
+        use_memory=True  # Enable MemoBrain
+    )
+    
+    print(f"Prediction: {result['prediction']}")
+    print(f"Token Count: {result['token_count']}")
+    print(f"Memorize Time: {result['total_memorize_time']:.2f}s")
+    print(f"Recall Time: {result['total_recall_time']:.2f}s")
+
+asyncio.run(main())
+```
+
+### How It Works
+
+1. **Agent Reasoning**: The ReAct agent performs multi-step reasoning with tool calls
+2. **Memory Recording**: After each tool execution, MemoBrain records the episode
+3. **Context Monitoring**: Token count is continuously monitored against the budget
+4. **Automatic Optimization**: When context exceeds the budget, MemoBrain:
+   - **Flushes** invalid or redundant reasoning steps
+   - **Folds** completed sub-trajectories into summaries
+   - **Returns** an optimized context for continued reasoning
+
+**📖 For complete documentation, see [examples/README.md](examples/README.md)**, including:
+- Detailed setup instructions
+- Model deployment guide
+- Configuration options
+- Multiple evaluation tasks (GAIA, WebWalker, BrowseComp)
+- Performance metrics and debugging tips
 
 ---
 
 ## 🗺️ Roadmap
 
 - [x] **Release Paper** - Executive Memory as an Agentic Brain for Reasoning
-- [x] **Release Model** - MemoBrain-8B model on Hugging Face
+- [x] **Release Models** - MemoBrain-4B, MemoBrain-8B, MemoBrain-14B on Hugging Face
 - [x] **Release Code** - Open-source MemoBrain implementation
-- [ ] **Deep Research Example** - Comprehensive example using MemoBrain for complex research tasks
-- [ ] **Additional Features** - Enhanced memory operations, visualization tools, and integration examples
+- [x] **ReAct Agent Example** - Complete example of MemoBrain managing long-horizon reasoning
 
 ---
 
