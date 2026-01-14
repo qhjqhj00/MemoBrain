@@ -28,7 +28,7 @@ def today_date():
 
 async def call_server_async(
     messages: List[Dict],
-    port: int,
+    api_base: str,
     model_name: str,
     api_key: str = "EMPTY",
     llm_generate_cfg: Dict = None,
@@ -59,7 +59,7 @@ async def call_server_async(
         max_tokens: Maximum tokens to generate
         top_p: Top-p sampling parameter
         temperature: Temperature for sampling
-        repetition_penalty: Repetition penalty
+        presence_penalty: Repetition penalty
         min_p: Minimum probability threshold
         top_k: Top-k sampling parameter
         
@@ -71,7 +71,7 @@ async def call_server_async(
     
     client = AsyncOpenAI(
         api_key=api_key,
-        base_url=f"http://localhost:{port}/v1",
+        base_url=api_base,
         timeout=600.0,
     )
 

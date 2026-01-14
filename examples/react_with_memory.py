@@ -11,7 +11,7 @@ from config import Configuration
 from state import OverallState
 from utils import today_date, call_server_async, num_tokens_from_messages
 from prompts import SYSTEM_PROMPT
-from tools import execute_tool_call
+from tools import execute_tool_call, init_tools, TOOL_MAP
 
 async def planning_node(state: OverallState, config: RunnableConfig) -> OverallState:
     """Node that calls the LLM for planning/reasoning."""
@@ -323,6 +323,16 @@ async def run_react_agent(
     """
     if config is None:
         config = Configuration.from_runnable_config()
+    
+    # Initialize tools with API keys from config
+    tools = init_tools(
+        google_api_key=config.google_api_key,
+        google_cx=config.google_cx,
+        jina_api_key=config.jina_api_key
+    )
+    # Update global TOOL_MAP with initialized tools
+    TOOL_MAP.clear()
+    TOOL_MAP.update({tool.name: tool for tool in tools})
     
     memory = None
     if use_memory:
